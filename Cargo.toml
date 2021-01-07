@@ -1,0 +1,14 @@
+[package]
+name = "seymour"
+version = "0.1.0"
+authors = ["Jay Vana <jaysvana@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "*"
+thiserror = "*"
+tokio = "0.2"
+env_logger = "*"
+log = "*"
+futures = "*"
+sqlx = { version = "*", default-features = false, features = ["runtime-tokio-native-tls", "macros", "migrate", "offline", "sqlite"] }
