@@ -33,10 +33,26 @@ impl Connection {
         }
     }
 
-    async fn consume_command(&mut self, command: Command) -> Result<()> {
+    async fn consume_command(&mut self, command: Command) -> Result<Vec<Response>> {
         info!("< {}", command);
 
-        Ok(())
+        match command {
+            Command::User { username } => {
+                self.user = ConnectedUser::User(username);
+                Ok(vec![Response::AckUser])
+            }
+            Command::ListFeeds => Ok(vec![
+                Response::StartFeedList,
+                Response::Feed {
+                    id: 42,
+                    name: "test".to_string(),
+                    url: "gemini://example.com".to_string(),
+                },
+                Response::EndList,
+            ]),
+            Command::AddFeed { name, url } => Ok(vec![Response::AckAdd { id: 69 }]),
+            Command::RemoveFeed { id } => Ok(vec![Response::AckRemove]),
+        }
     }
 }
 
@@ -51,7 +67,15 @@ async fn handle_connection(stream: TcpStream, address: SocketAddr) -> Result<()>
     let mut lines = server_reader.lines();
     while let Some(line) = lines.next_line().await? {
         match line.parse() {
-            Ok(command) => connection.consume_command(command).await?,
+            Ok(command) => {
+                let responses = connection.consume_command(command).await?;
+
+                for response in responses.into_iter() {
+                    writer
+                        .write_all(format!("{}\r\n", response).as_bytes())
+                        .await?;
+                }
+            }
             Err(e) => {
                 let response: Response = e.into();
                 writer
