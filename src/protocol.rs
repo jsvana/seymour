@@ -134,7 +134,7 @@ impl FromStr for Command {
 }
 
 pub enum Response {
-    AckUser,
+    AckUser { id: i64 },
     StartFeedList,
     Feed { id: i64, name: String, url: String },
     EndList,
@@ -156,7 +156,7 @@ impl From<ParseCommandError> for Response {
 impl fmt::Display for Response {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Response::AckUser => write!(f, "20"),
+            Response::AckUser { id } => write!(f, "20 {}", id),
             Response::StartFeedList => write!(f, "21"),
             Response::Feed { id, name, url } => write!(f, "22 {} {} {}", id, name, url),
             Response::EndList => write!(f, "23"),

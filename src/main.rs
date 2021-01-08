@@ -36,6 +36,29 @@ impl<'a> Connection<'a> {
         }
     }
 
+    async fn select_user(&mut self, username: String) -> Result<Vec<Response>> {
+        let id = match sqlx::query!("SELECT id FROM users WHERE username = ?1", username)
+            .fetch_one(self.pool)
+            .await
+        {
+            Ok(user) => user
+                .id
+                .ok_or_else(|| format_err!("database entry for user \"{}\" has no ID", username))?,
+            Err(_) => {
+                let mut conn = self.pool.acquire().await?;
+
+                sqlx::query!("INSERT INTO users (username) VALUES (?1)", username)
+                    .execute(&mut conn)
+                    .await?
+                    .last_insert_rowid()
+            }
+        };
+
+        self.user = ConnectedUser::User(username);
+
+        Ok(vec![Response::AckUser { id }])
+    }
+
     async fn add_feed(&self, name: String, url: String) -> Result<Vec<Response>> {
         let mut conn = self.pool.acquire().await?;
 
@@ -94,10 +117,7 @@ impl<'a> Connection<'a> {
         info!("< {}", command);
 
         match command {
-            Command::User { username } => {
-                self.user = ConnectedUser::User(username);
-                Ok(vec![Response::AckUser])
-            }
+            Command::User { username } => self.select_user(username).await,
             Command::ListFeeds => self.list_feeds().await,
             Command::AddFeed { name, url } => self.add_feed(name, url).await,
             Command::RemoveFeed { id } => self.remove_feed(id).await,
