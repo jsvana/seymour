@@ -1,3 +1,4 @@
+mod gemini;
 mod protocol;
 
 use std::net::SocketAddr;
@@ -14,6 +15,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::interval;
 
+use gemini::check_feeds;
 use protocol::{Command, Response};
 
 enum ConnectedUser {
@@ -176,12 +178,14 @@ struct Config {
     feed_fetch_interval: Duration,
 }
 
-async fn manage_feeds(_pool: &Pool<Sqlite>, config: &Config) -> Result<()> {
+async fn manage_feeds(pool: &Pool<Sqlite>, config: &Config) -> Result<()> {
     let mut timer = interval(config.feed_fetch_interval);
     timer.tick().await;
 
     loop {
-        println!("asdf");
+        if let Err(e) = check_feeds(pool).await {
+            error!("failed to check feeds: {}", e);
+        }
 
         timer.tick().await;
     }
