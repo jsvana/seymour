@@ -142,6 +142,7 @@ pub enum Response {
     AckRemove,
 
     BadCommand(String),
+    InternalError(String),
 }
 
 impl From<ParseCommandError> for Response {
@@ -161,6 +162,7 @@ impl fmt::Display for Response {
             Response::AckRemove => write!(f, "25"),
 
             Response::BadCommand(message) => write!(f, "50 {}", message),
+            Response::InternalError(message) => write!(f, "51 {}", message),
         }
     }
 }
