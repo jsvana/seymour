@@ -1,7 +1,7 @@
 use std::net::ToSocketAddrs;
 use std::str::FromStr;
 
-use anyhow::Result;
+use anyhow::{format_err, Result};
 use itertools::Itertools;
 use native_tls::TlsConnector;
 use sqlx::{Pool, Sqlite};
@@ -9,6 +9,8 @@ use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use url::Url;
+
+const REDIRECT_CAP: usize = 5;
 
 #[derive(Debug)]
 enum Status {
@@ -179,18 +181,37 @@ async fn fetch_page(full_url: String) -> Result<Page> {
 
     let body = response_lines.join("\n");
 
-    // TODO(jsvana): handle retries, redirects, etc
-
     Ok(Page {
         header,
         body: if body.is_empty() { None } else { Some(body) },
     })
 }
 
+async fn fetch_page_handle_redirects(full_url: String) -> Result<Page> {
+    let mut url_to_fetch = full_url;
+
+    let mut attempts = 0;
+    while attempts < REDIRECT_CAP {
+        let page = fetch_page(url_to_fetch).await?;
+
+        if let Status::TemporaryRedirect | Status::PermanentRedirect = page.header.status {
+            attempts += 1;
+            url_to_fetch = page.header.meta;
+        } else {
+            return Ok(page);
+        }
+    }
+
+    Err(format_err!(
+        "reached maximum redirect cap of {}",
+        REDIRECT_CAP
+    ))
+}
+
 pub async fn check_feeds(_pool: &Pool<Sqlite>) -> Result<()> {
     let full_url = "gemini://gemini.circumlunar.space/".to_string();
 
-    let contents = fetch_page(full_url).await?;
+    let contents = fetch_page_handle_redirects(full_url).await?;
 
     println!("{:?}", contents);
 
