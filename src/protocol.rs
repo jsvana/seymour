@@ -141,7 +141,9 @@ pub enum Response {
     AckAdd { id: i64 },
     AckRemove,
 
+    ResourceNotFound(String),
     BadCommand(String),
+
     InternalError(String),
 }
 
@@ -161,7 +163,9 @@ impl fmt::Display for Response {
             Response::AckAdd { id } => write!(f, "24 {}", id),
             Response::AckRemove => write!(f, "25"),
 
-            Response::BadCommand(message) => write!(f, "50 {}", message),
+            Response::ResourceNotFound(message) => write!(f, "40 {}", message),
+            Response::BadCommand(message) => write!(f, "41 {}", message),
+
             Response::InternalError(message) => write!(f, "51 {}", message),
         }
     }

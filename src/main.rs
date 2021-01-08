@@ -9,7 +9,7 @@ use env_logger::Builder;
 use log::LevelFilter;
 use log::{error, info};
 use sqlx::sqlite::SqlitePool;
-use sqlx::{Pool, Sqlite};
+use sqlx::{Done, Pool, Sqlite};
 use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -35,6 +35,17 @@ impl<'a> Connection<'a> {
             user: ConnectedUser::NoUser,
             pool,
         }
+    }
+
+    async fn add_feed(&self, name: String, url: String) -> Result<Vec<Response>> {
+        let mut conn = self.pool.acquire().await?;
+
+        let id = sqlx::query!("INSERT INTO feeds (name, url) VALUES (?1, ?2)", name, url)
+            .execute(&mut conn)
+            .await?
+            .last_insert_rowid();
+
+        Ok(vec![Response::AckAdd { id }])
     }
 
     async fn list_feeds(&self) -> Result<Vec<Response>> {
@@ -64,6 +75,22 @@ impl<'a> Connection<'a> {
         Ok(responses)
     }
 
+    async fn remove_feed(&self, id: i64) -> Result<Vec<Response>> {
+        let affected_rows = sqlx::query!("DELETE FROM feeds WHERE id = ?1", id)
+            .execute(self.pool)
+            .await?
+            .rows_affected();
+
+        if affected_rows > 0 {
+            Ok(vec![Response::AckRemove])
+        } else {
+            Ok(vec![Response::ResourceNotFound(format!(
+                "no feed with ID {} exists",
+                id
+            ))])
+        }
+    }
+
     async fn consume_command(&mut self, command: Command) -> Result<Vec<Response>> {
         info!("< {}", command);
 
@@ -73,11 +100,8 @@ impl<'a> Connection<'a> {
                 Ok(vec![Response::AckUser])
             }
             Command::ListFeeds => self.list_feeds().await,
-            Command::AddFeed {
-                name: _name,
-                url: _url,
-            } => Ok(vec![Response::AckAdd { id: 69 }]),
-            Command::RemoveFeed { id: _id } => Ok(vec![Response::AckRemove]),
+            Command::AddFeed { name, url } => self.add_feed(name, url).await,
+            Command::RemoveFeed { id } => self.remove_feed(id).await,
         }
     }
 }
