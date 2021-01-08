@@ -6,9 +6,10 @@ edition = "2018"
 
 [dependencies]
 anyhow = "*"
+dotenv = "*"
+env_logger = "*"
+futures = "*"
+log = "*"
+sqlx = { version = "*", default-features = false, features = ["runtime-tokio-native-tls", "macros", "migrate", "offline", "sqlite"] }
 thiserror = "*"
 tokio = "0.2"
-env_logger = "*"
-log = "*"
-futures = "*"
-sqlx = { version = "*", default-features = false, features = ["runtime-tokio-native-tls", "macros", "migrate", "offline", "sqlite"] }

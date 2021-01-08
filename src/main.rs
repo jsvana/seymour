@@ -1,10 +1,9 @@
 mod protocol;
 
-use std::env;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use anyhow::{format_err, Result};
+use anyhow::{format_err, Context, Result};
 use env_logger::Builder;
 use log::LevelFilter;
 use log::{error, info};
@@ -111,9 +110,9 @@ async fn handle_connection(
     address: SocketAddr,
     pool: &Pool<Sqlite>,
 ) -> Result<()> {
-    info!("Client connected from {}", address);
-
     let mut connection = Connection::new(address, pool);
+
+    info!("Client connected from {}", connection.address);
 
     let (reader, mut writer) = tokio::io::split(stream);
 
@@ -151,9 +150,14 @@ async fn handle_connection(
     Ok(())
 }
 
-async fn manage_feeds(_pool: &Pool<Sqlite>) -> Result<()> {
-    // TODO(jsvana): config value
-    let mut timer = interval(Duration::from_secs(30));
+struct Config {
+    host_port: String,
+    database_url: String,
+    feed_fetch_interval: Duration,
+}
+
+async fn manage_feeds(_pool: &Pool<Sqlite>, config: &Config) -> Result<()> {
+    let mut timer = interval(config.feed_fetch_interval);
     timer.tick().await;
 
     loop {
@@ -163,24 +167,36 @@ async fn manage_feeds(_pool: &Pool<Sqlite>) -> Result<()> {
     }
 }
 
-// TODO(jsvana): config
 #[tokio::main]
 async fn main() -> Result<()> {
     Builder::new().filter_level(LevelFilter::Info).init();
 
-    let pool = SqlitePool::connect("sqlite://seymour.db").await?;
+    let feed_fetch_interval_min =
+        dotenv::var("FEED_FETCH_INTERVAL_MIN").unwrap_or_else(|_| "60".to_string());
+    let feed_fetch_interval_min: u64 = feed_fetch_interval_min.parse().with_context(|| {
+        format!(
+            "invalid $FEED_FETCH_INTERVAL_MIN \"{}\"",
+            feed_fetch_interval_min
+        )
+    })?;
 
-    let addr = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+    let config = Config {
+        database_url: dotenv::var("DATABASE_URL").context("Missing env var $DATABASE_URL")?,
+        host_port: dotenv::var("HOST_PORT").context("Missing env var $HOST_PORT")?,
+        feed_fetch_interval: Duration::from_secs(feed_fetch_interval_min * 60),
+    };
 
-    let mut listener = TcpListener::bind(&addr).await?;
-    info!("Listening on: {}", addr);
+    let pool = SqlitePool::connect(&config.database_url).await?;
+
+    let mut listener = TcpListener::bind(&config.host_port).await?;
+    info!("Listening on: {}", config.host_port);
 
     {
         let pool = pool.clone();
         tokio::spawn(async move {
-            manage_feeds(&pool).await.expect("feed manager failed");
+            manage_feeds(&pool, &config)
+                .await
+                .expect("feed manager failed");
         });
     }
 

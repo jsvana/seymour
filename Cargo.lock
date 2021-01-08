@@ -1145,6 +1145,7 @@ name = "seymour"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dotenv",
  "env_logger",
  "futures",
  "log",
