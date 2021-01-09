@@ -1,16 +1,12 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 use std::net::ToSocketAddrs;
 use std::str::FromStr;
 
 use anyhow::{format_err, Result};
-use chrono::NaiveDate;
 use itertools::Itertools;
-use lazy_static::lazy_static;
-use regex::Regex;
 use rustls::{
     Certificate, ClientConfig, RootCertStore, ServerCertVerified, ServerCertVerifier, TLSError,
 };
-use sqlx::{Pool, Sqlite};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -19,15 +15,10 @@ use tokio_rustls::TlsConnector;
 use url::Url;
 use webpki::DNSNameRef;
 
-lazy_static! {
-    static ref ENTRY_REGEX: Regex =
-        Regex::new(r"^=>\s+([^\s]+)\s+(\d{4}-\d{2}-\d{2})\s+(-\s+)?(.+)$").unwrap();
-}
-
 const REDIRECT_CAP: usize = 5;
 
 #[derive(Debug)]
-enum Status {
+pub enum Status {
     // 10
     Input,
     // 11
@@ -67,7 +58,7 @@ enum Status {
 }
 
 #[derive(Debug, Error)]
-enum ParseStatusError {
+pub enum ParseStatusError {
     #[error("invalid status \"{0}\"")]
     InvalidStatus(String),
 }
@@ -101,13 +92,13 @@ impl FromStr for Status {
 }
 
 #[derive(Debug)]
-struct Header {
-    status: Status,
-    meta: String,
+pub struct Header {
+    pub status: Status,
+    pub meta: String,
 }
 
 #[derive(Debug, Error)]
-enum ParseHeaderError {
+pub enum ParseHeaderError {
     #[error("missing status")]
     MissingStatus,
     #[error("missing meta")]
@@ -136,30 +127,18 @@ impl FromStr for Header {
 }
 
 #[derive(Debug)]
-struct Page {
-    url: String,
-    header: Header,
-    body: Option<String>,
+pub struct Page {
+    pub url: String,
+    pub header: Header,
+    pub body: Option<String>,
 }
 
-#[derive(Debug, Error)]
-enum CheckFeedError {
-    #[error("unsupported scheme for feed \"{0}\", only gemini is supported")]
-    UnsupportedScheme(String),
-    #[error("missing host in feed \"{0}\"")]
-    MissingHost(String),
-    #[error("failed to resolve feed \"{0}\"")]
-    FailedToResolve(String),
-    #[error("response is missing its header")]
-    MissingHeader,
-}
-
-enum ServerTLSValidation {
+pub enum ServerTLSValidation {
     SelfSigned(CertificateFingerprint),
     Chained,
 }
 
-struct CertificateFingerprint {
+pub struct CertificateFingerprint {
     digest: [u8; ring::digest::SHA256_OUTPUT_LEN],
     not_after: i64,
 }
@@ -316,213 +295,88 @@ async fn build_tls_config<'a>(
     Ok(Arc::new(config))
 }
 
-async fn fetch_page(full_url: String, tls_validation: Option<ServerTLSValidation>) -> Result<Page> {
-    let feed_url = Url::parse(&full_url)?;
-
-    if feed_url.scheme() != "gemini" {
-        return Err(CheckFeedError::UnsupportedScheme(full_url.to_string()).into());
-    }
-
-    let host = feed_url
-        .host_str()
-        .ok_or_else(|| CheckFeedError::MissingHost(full_url.to_string()))?;
-    let port = feed_url.port().unwrap_or(1965);
-
-    let addr = format!("{}:{}", host, port)
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| CheckFeedError::FailedToResolve(full_url.to_string()))?;
-
-    let dns_name = DNSNameRef::try_from_ascii_str(&host)?;
-    let socket = TcpStream::connect(&addr).await?;
-    let config = TlsConnector::from(build_tls_config(tls_validation).await?);
-
-    let mut socket = config.connect(dns_name, socket).await?;
-
-    socket
-        .write_all(format!("{}\r\n", full_url).as_bytes())
-        .await?;
-
-    let mut data = Vec::new();
-    socket.read_to_end(&mut data).await?;
-
-    let response = String::from_utf8(data)?;
-    let mut response_lines = response.lines();
-
-    let header: Header = response_lines
-        .next()
-        .ok_or(CheckFeedError::MissingHeader)?
-        .parse()?;
-
-    let body = response_lines.join("\n");
-
-    Ok(Page {
-        url: full_url,
-        header,
-        body: if body.is_empty() { None } else { Some(body) },
-    })
-}
-
-async fn fetch_page_handle_redirects(full_url: String) -> Result<Page> {
-    let mut url_to_fetch = full_url;
-
-    let mut attempts = 0;
-    while attempts < REDIRECT_CAP {
-        // TODO: verification
-        let page = fetch_page(url_to_fetch, None).await?;
-
-        if let Status::TemporaryRedirect | Status::PermanentRedirect = page.header.status {
-            attempts += 1;
-            url_to_fetch = page.header.meta;
-        } else {
-            return Ok(page);
-        }
-    }
-
-    Err(format_err!(
-        "reached maximum redirect cap of {}",
-        REDIRECT_CAP
-    ))
-}
-
-#[derive(Debug)]
-struct Entry {
-    published_at: NaiveDate,
-    link: String,
-    title: String,
-}
-
 #[derive(Debug, Error)]
-enum ParseEntryError {
-    #[error("malformed entry string")]
-    MalformedEntry,
-    #[error("missing year")]
-    MissingYear,
-    #[error("invalid year \"{0}\"")]
-    InvalidYear(String),
-    #[error("missing month")]
-    MissingMonth,
-    #[error("invalid month \"{0}\"")]
-    InvalidMonth(String),
-    #[error("missing day")]
-    MissingDay,
-    #[error("invalid day \"{0}\"")]
-    InvalidDay(String),
+pub enum FetchPageError {
+    #[error("unsupported scheme for feed \"{0}\", only gemini is supported")]
+    UnsupportedScheme(String),
+    #[error("missing host in feed \"{0}\"")]
+    MissingHost(String),
+    #[error("failed to resolve feed \"{0}\"")]
+    FailedToResolve(String),
+    #[error("response is missing its header")]
+    MissingHeader,
 }
 
-impl FromStr for Entry {
-    type Err = ParseEntryError;
+impl Page {
+    pub async fn fetch(
+        full_url: String,
+        tls_validation: Option<ServerTLSValidation>,
+    ) -> Result<Page> {
+        let feed_url = Url::parse(&full_url)?;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let capture = ENTRY_REGEX
-            .captures_iter(s)
+        if feed_url.scheme() != "gemini" {
+            return Err(FetchPageError::UnsupportedScheme(full_url.to_string()).into());
+        }
+
+        let host = feed_url
+            .host_str()
+            .ok_or_else(|| FetchPageError::MissingHost(full_url.to_string()))?;
+        let port = feed_url.port().unwrap_or(1965);
+
+        let addr = format!("{}:{}", host, port)
+            .to_socket_addrs()?
             .next()
-            .ok_or(ParseEntryError::MalformedEntry)?;
+            .ok_or_else(|| FetchPageError::FailedToResolve(full_url.to_string()))?;
 
-        let link = capture[1].to_string();
-        let title = capture[4].to_string();
+        let dns_name = DNSNameRef::try_from_ascii_str(&host)?;
+        let socket = TcpStream::connect(&addr).await?;
+        let config = TlsConnector::from(build_tls_config(tls_validation).await?);
 
-        let date_parts: Vec<&str> = capture[2].split('-').collect();
+        let mut socket = config.connect(dns_name, socket).await?;
 
-        let year = date_parts.get(0).ok_or(ParseEntryError::MissingYear)?;
-        let year: i32 = year
-            .parse()
-            .map_err(|_| ParseEntryError::InvalidYear(year.to_string()))?;
+        socket
+            .write_all(format!("{}\r\n", full_url).as_bytes())
+            .await?;
 
-        let month = date_parts.get(1).ok_or(ParseEntryError::MissingMonth)?;
-        let month: u32 = month
-            .parse()
-            .map_err(|_| ParseEntryError::InvalidMonth(month.to_string()))?;
+        let mut data = Vec::new();
+        socket.read_to_end(&mut data).await?;
 
-        let day = date_parts.get(2).ok_or(ParseEntryError::MissingDay)?;
-        let day: u32 = day
-            .parse()
-            .map_err(|_| ParseEntryError::InvalidDay(day.to_string()))?;
+        let response = String::from_utf8(data)?;
+        let mut response_lines = response.lines();
 
-        Ok(Entry {
-            published_at: NaiveDate::from_ymd(year, month, day),
-            link,
-            title,
+        let header: Header = response_lines
+            .next()
+            .ok_or(FetchPageError::MissingHeader)?
+            .parse()?;
+
+        let body = response_lines.join("\n");
+
+        Ok(Page {
+            url: full_url,
+            header,
+            body: if body.is_empty() { None } else { Some(body) },
         })
     }
-}
 
-#[derive(Debug)]
-struct Feed {
-    base_url: String,
-    title: String,
-    subtitle: Option<String>,
-    entries: Vec<Entry>,
-}
+    pub async fn fetch_and_handle_redirects(full_url: String) -> Result<Page> {
+        let mut url_to_fetch = full_url;
 
-#[derive(Debug, Error)]
-enum TryFromPageError {
-    #[error("page is empty")]
-    EmptyPage,
-    #[error("header missing prefix (should be impossible)")]
-    HeaderMissingPrefix,
-    #[error("page is missing a title")]
-    MissingTitle,
-}
+        let mut attempts = 0;
+        while attempts < REDIRECT_CAP {
+            // TODO: verification
+            let page = Page::fetch(url_to_fetch, None).await?;
 
-impl TryFrom<Page> for Feed {
-    type Error = TryFromPageError;
-
-    fn try_from(page: Page) -> Result<Self, Self::Error> {
-        let body = page.body.ok_or(TryFromPageError::EmptyPage)?;
-
-        let mut title: Option<String> = None;
-        let mut title_line: Option<usize> = None;
-        let mut subtitle: Option<String> = None;
-        let mut entries = Vec::new();
-
-        let lines = body.lines();
-
-        for (i, line) in lines.enumerate() {
-            if line.starts_with("# ") {
-                if let None = title {
-                    title = Some(
-                        line.strip_prefix("# ")
-                            .ok_or(TryFromPageError::HeaderMissingPrefix)?
-                            .to_string(),
-                    );
-                    title_line = Some(i);
-                }
-            } else if line.starts_with("## ") {
-                if let (None, Some(title_idx)) = (&subtitle, title_line) {
-                    if title_idx == i - 1 {
-                        subtitle = Some(
-                            line.strip_prefix("## ")
-                                .ok_or(TryFromPageError::HeaderMissingPrefix)?
-                                .to_string(),
-                        );
-                    }
-                }
-            } else if line.starts_with("=> ") {
-                if let Ok(entry) = line.parse::<Entry>() {
-                    entries.push(entry);
-                }
+            if let Status::TemporaryRedirect | Status::PermanentRedirect = page.header.status {
+                attempts += 1;
+                url_to_fetch = page.header.meta;
+            } else {
+                return Ok(page);
             }
         }
 
-        Ok(Feed {
-            base_url: page.url,
-            title: title.ok_or(TryFromPageError::MissingTitle)?,
-            subtitle,
-            entries,
-        })
+        Err(format_err!(
+            "reached maximum redirect cap of {}",
+            REDIRECT_CAP
+        ))
     }
-}
-
-pub async fn check_feeds(_pool: &Pool<Sqlite>) -> Result<()> {
-    let full_url = "gemini://skyjake.fi:1965/gemlog/".to_string();
-
-    let contents = fetch_page_handle_redirects(full_url).await?;
-
-    println!("{:?}", contents);
-
-    let feed: Feed = contents.try_into()?;
-    println!("{:?}", feed);
-
-    Ok(())
 }

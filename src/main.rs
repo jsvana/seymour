@@ -1,6 +1,7 @@
 mod gemini;
 mod protocol;
 
+use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -15,7 +16,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::interval;
 
-use gemini::check_feeds;
+use gemini::feed::Feed;
+use gemini::fetch::Page;
 use protocol::{Command, Response};
 
 enum ConnectedUser {
@@ -176,6 +178,19 @@ struct Config {
     host_port: String,
     database_url: String,
     feed_fetch_interval: Duration,
+}
+
+async fn check_feeds(_pool: &Pool<Sqlite>) -> Result<()> {
+    let full_url = "gemini://skyjake.fi:1965/gemlog/".to_string();
+
+    let contents = Page::fetch_and_handle_redirects(full_url).await?;
+
+    println!("{:?}", contents);
+
+    let feed: Feed = contents.try_into()?;
+    println!("{:?}", feed);
+
+    Ok(())
 }
 
 async fn manage_feeds(pool: &Pool<Sqlite>, config: &Config) -> Result<()> {
