@@ -2,17 +2,20 @@ use std::convert::{TryFrom, TryInto};
 use std::net::ToSocketAddrs;
 use std::str::FromStr;
 
+use std::sync::Arc;
 use anyhow::{format_err, Result};
 use chrono::NaiveDate;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use native_tls::TlsConnector;
 use regex::Regex;
 use sqlx::{Pool, Sqlite};
+use rustls::ClientConfig;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio_rustls::TlsConnector;
 use url::Url;
+use webpki::DNSNameRef;
 
 lazy_static! {
     static ref ENTRY_REGEX: Regex =
@@ -149,6 +152,12 @@ enum CheckFeedError {
     MissingHeader,
 }
 
+async fn build_tls_config<'a>(_dns_name: DNSNameRef<'a>) -> Result<Arc<ClientConfig>> {
+    let mut config = ClientConfig::new();
+    config.root_store.add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
+    Ok(Arc::new(config))
+}
+
 async fn fetch_page(full_url: String) -> Result<Page> {
     let feed_url = Url::parse(&full_url)?;
 
@@ -166,13 +175,11 @@ async fn fetch_page(full_url: String) -> Result<Page> {
         .next()
         .ok_or_else(|| CheckFeedError::FailedToResolve(full_url.to_string()))?;
 
+    let dns_name = DNSNameRef::try_from_ascii_str(&host)?;
     let socket = TcpStream::connect(&addr).await?;
-    let cx = TlsConnector::builder()
-        .danger_accept_invalid_certs(true)
-        .build()?;
-    let cx = tokio_native_tls::TlsConnector::from(cx);
+    let config = TlsConnector::from(build_tls_config(dns_name).await?);
 
-    let mut socket = cx.connect(host, socket).await?;
+    let mut socket = config.connect(dns_name, socket).await?;
 
     socket
         .write_all(format!("{}\r\n", full_url).as_bytes())
