@@ -1024,6 +1024,7 @@ dependencies = [
  "lazy_static",
  "log",
  "regex",
+ "ring",
  "rustls",
  "sqlx",
  "thiserror",
@@ -1032,6 +1033,7 @@ dependencies = [
  "url",
  "webpki",
  "webpki-roots",
+ "x509-signature",
 ]
 
 [[package]]
@@ -1552,3 +1554,13 @@ name = "wyz"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85e60b0d1b5f99db2556934e21937020776a5d31520bf169e851ac44e6420214"
+
+[[package]]
+name = "x509-signature"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fb2bc2a902d992cd5f471ee3ab0ffd6603047a4207384562755b9d6de977518"
+dependencies = [
+ "ring",
+ "untrusted",
+]
