@@ -199,7 +199,7 @@ async fn fetch_page(full_url: String) -> Result<Page> {
     let body = response_lines.join("\n");
 
     Ok(Page {
-        url: full_url.clone(),
+        url: full_url,
         header,
         body: if body.is_empty() { None } else { Some(body) },
     })
