@@ -1,9 +1,10 @@
 CREATE TABLE IF NOT EXISTS feed_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   feed_id INTEGER NOT NULL,
-  name TEXT NOT NULL,
-  created_at TEXT NOT NULL,
+  title TEXT NOT NULL,
+  published_at TEXT NOT NULL,
   url TEXT NOT NULL,
 
-  FOREIGN KEY(feed_id) REFERENCES feeds(id)
+  FOREIGN KEY(feed_id) REFERENCES feeds(id),
+  UNIQUE(feed_id, published_at, url)
 );

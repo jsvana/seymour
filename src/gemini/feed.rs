@@ -16,9 +16,9 @@ lazy_static! {
 
 #[derive(Debug)]
 pub struct Entry {
-    published_at: NaiveDate,
-    link: String,
-    title: String,
+    pub published_at: NaiveDate,
+    pub url: String,
+    pub title: String,
 }
 
 #[derive(Debug, Error)]
@@ -48,7 +48,7 @@ impl FromStr for Entry {
             .next()
             .ok_or(ParseEntryError::MalformedEntry)?;
 
-        let link = capture[1].to_string();
+        let url = capture[1].to_string();
         let title = capture[4].to_string();
 
         let date_parts: Vec<&str> = capture[2].split('-').collect();
@@ -70,7 +70,7 @@ impl FromStr for Entry {
 
         Ok(Entry {
             published_at: NaiveDate::from_ymd(year, month, day),
-            link,
+            url,
             title,
         })
     }
@@ -78,10 +78,10 @@ impl FromStr for Entry {
 
 #[derive(Debug)]
 pub struct Feed {
-    base_url: String,
-    title: String,
-    subtitle: Option<String>,
-    entries: Vec<Entry>,
+    pub base_url: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub entries: Vec<Entry>,
 }
 
 #[derive(Debug, Error)]

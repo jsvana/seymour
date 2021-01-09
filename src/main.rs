@@ -75,14 +75,9 @@ impl<'a> Connection<'a> {
     }
 
     async fn list_feeds(&self) -> Result<Vec<Response>> {
-        let feeds = sqlx::query!(
-            r#"
-            SELECT id, name, url
-            FROM feeds
-            "#
-        )
-        .fetch_all(self.pool)
-        .await?;
+        let feeds = sqlx::query!("SELECT id, name, url FROM feeds")
+            .fetch_all(self.pool)
+            .await?;
 
         let mut responses = vec![Response::StartFeedList];
 
@@ -123,6 +118,7 @@ impl<'a> Connection<'a> {
         match command {
             Command::User { username } => self.select_user(username).await,
             Command::ListFeeds => self.list_feeds().await,
+            // TODO: make name optional and fill in from page fetch
             Command::AddFeed { name, url } => self.add_feed(name, url).await,
             Command::RemoveFeed { id } => self.remove_feed(id).await,
         }
@@ -180,15 +176,50 @@ struct Config {
     feed_fetch_interval: Duration,
 }
 
-async fn check_feeds(_pool: &Pool<Sqlite>) -> Result<()> {
-    let full_url = "gemini://skyjake.fi:1965/gemlog/".to_string();
-
-    let contents = Page::fetch_and_handle_redirects(full_url).await?;
-
-    println!("{:?}", contents);
-
+async fn check_feed(pool: &Pool<Sqlite>, feed_id: i64, feed_url: String) -> Result<()> {
+    let contents = Page::fetch_and_handle_redirects(feed_url).await?;
     let feed: Feed = contents.try_into()?;
-    println!("{:?}", feed);
+
+    if feed.entries.is_empty() {
+        return Ok(());
+    }
+
+    let mut tx = pool.begin().await?;
+    for entry in feed.entries {
+        let published_at = entry.published_at.to_string();
+        sqlx::query!(
+            r#"INSERT OR IGNORE INTO feed_entries
+                (feed_id, title, published_at, url)
+                VALUES (?1, ?2, ?3, ?4)"#,
+            feed_id,
+            entry.title,
+            published_at,
+            entry.url,
+        )
+        .execute(&mut tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(())
+}
+
+async fn check_feeds(pool: &Pool<Sqlite>) -> Result<()> {
+    let feeds = sqlx::query!("SELECT id, url FROM feeds")
+        .fetch_all(pool)
+        .await?;
+
+    for feed in feeds {
+        if let Err(e) = check_feed(
+            pool,
+            feed.id.ok_or_else(|| format_err!("feed missing ID"))?,
+            feed.url.clone(),
+        )
+        .await
+        {
+            error!("failed to check feed \"{}\": {}", feed.url, e);
+        }
+    }
 
     Ok(())
 }
