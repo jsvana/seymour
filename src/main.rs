@@ -378,7 +378,7 @@ async fn check_feeds(pool: &Pool<Sqlite>) -> Result<()> {
 
         sqlx::query!("DELETE FROM feeds WHERE id = ?1", feed_id)
             .execute(&mut tx)
-            .await;
+            .await?;
     }
     tx.commit().await?;
 

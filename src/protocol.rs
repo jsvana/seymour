@@ -21,12 +21,39 @@ use thiserror::Error;
 // > MARKREAD <entry_id>
 // < 28
 
+/// Commands sent to seymour server
 pub enum Command {
+    /// Select the user user
     User { username: String },
+
+    /// List the current user's subscriptions
+    ///
+    /// Requires a client to issue a User
+    /// command prior.
     ListSubscriptions,
+
+    /// Subscribe the current user to a new feed
+    ///
+    /// Requires a client to issue a User
+    /// command prior.
     Subscribe { url: String },
+
+    /// Unsubscribe the current user from a feed
+    ///
+    /// Requires a client to issue a User
+    /// command prior.
     Unsubscribe { id: i64 },
+
+    /// List the current user's unread feed entries
+    ///
+    /// Requires a client to issue a User
+    /// command prior.
     ListUnread,
+
+    /// Mark a feed entry as read by the current user
+    ///
+    /// Requires a client to issue a User
+    /// command prior.
     MarkRead { id: i64 },
 }
 
@@ -43,7 +70,6 @@ impl fmt::Display for Command {
     }
 }
 
-// TODO(jsvana): impl From<ParseCommandError> for Response
 #[derive(Debug, Error)]
 pub enum ParseCommandError {
     #[error("empty command")]
@@ -149,16 +175,33 @@ impl FromStr for Command {
     }
 }
 
+/// Responses sent from seymour server
 pub enum Response {
-    AckUser {
-        id: i64,
-    },
+    /// Acknowledgement for selecting current user
+    AckUser { id: i64 },
+
+    /// Beginning of a list of subscriptions
+    ///
+    /// Must be followed by zero or more Subscription lines and
+    /// one EndList.
     StartSubscriptionList,
-    Subscription {
-        id: i64,
-        url: String,
-    },
+
+    /// A single subscription entry
+    ///
+    /// Must be preceeded by one StartSubscriptionList and
+    /// followed by one EndList.
+    Subscription { id: i64, url: String },
+
+    /// Beginning of a list of feed entries
+    ///
+    /// Must be followed by zero or more Entry lines and
+    /// one EndList.
     StartEntryList,
+
+    /// A single feed entry
+    ///
+    /// Must be preceeded by one StartEntryList and
+    /// followed by one EndList.
     Entry {
         id: i64,
         feed_id: i64,
@@ -166,15 +209,39 @@ pub enum Response {
         title: String,
         url: String,
     },
+
+    /// Ends a list sent by the server
+    ///
+    /// Must be preceeded by at least either a StartSubscriptionList
+    /// or a StartEntryList.
     EndList,
+
+    /// Acknowledgement for subscribing the current user
+    /// to a new feed
     AckSubscribe,
+
+    /// Acknowledgement for unsubscribing the current user
+    /// from a feed
     AckUnsubscribe,
+
+    /// Acknowledgement for marking a feed entry as read
+    /// by the current user
     AckMarkRead,
 
+    /// Error stating that the specified resource was
+    /// not found
     ResourceNotFound(String),
+
+    /// Error stating that the command sent was not valid
     BadCommand(String),
+
+    /// Error stating that the command sent requires a
+    /// selected user, but no user has been selected
     NeedUser(String),
 
+    /// Error stating that the seymour server hit an
+    /// internal problem while attempting to serve
+    /// the request
     InternalError(String),
 }
 
