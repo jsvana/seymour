@@ -9,29 +9,25 @@ use thiserror::Error;
 //
 // [connect]
 // > USER <username>
-// < ACKUSER
+// < 20 <user_id>
 // > LISTFEEDS
-// < FEED id feedname url
-// < ENDLIST
-// > ADDFEED <feedname> <url>
-// < ACKADD <id>
-// > REMOVEFEED <id>
-//
-// [connect]
-// > LISTFEEDS
-// < NEEDUSER
-//
-// ##########
-// # Errors #
-// ##########
-//
-// 50 => BadCommand
+// < 21
+// < 22 <feed_id> <feed_url> :<feed_name>
+// < 25
+// > LISTUNREAD
+// < 23
+// < 24 <entry_id> <feed_id> <feed_url> <entry_title> :<entry_link>
+// < 25
+// > MARKREAD <entry_id>
+// < 28
 
 pub enum Command {
     User { username: String },
     ListFeeds,
     AddFeed { name: String, url: String },
     RemoveFeed { id: i64 },
+    ListUnread,
+    MarkRead { id: i64 },
 }
 
 impl fmt::Display for Command {
@@ -41,6 +37,8 @@ impl fmt::Display for Command {
             Command::ListFeeds => write!(f, "LISTFEEDS"),
             Command::AddFeed { name, url } => write!(f, "ADDFEED {} {}", name, url),
             Command::RemoveFeed { id } => write!(f, "REMOVEFEED {}", id),
+            Command::ListUnread => write!(f, "LISTUNREAD"),
+            Command::MarkRead { id } => write!(f, "MARKREAD {}", id),
         }
     }
 }
@@ -128,21 +126,61 @@ impl FromStr for Command {
 
                 Ok(Command::RemoveFeed { id })
             }
+            "LISTUNREAD" => {
+                check_arguments(&parts, 0)?;
+
+                Ok(Command::ListUnread)
+            }
+            "MARKREAD" => {
+                check_arguments(&parts, 1)?;
+
+                let possible_id = parts
+                    .get(1)
+                    .ok_or_else(|| ParseCommandError::MissingArgument("id".to_string()))?;
+
+                let id: i64 =
+                    possible_id
+                        .parse()
+                        .map_err(|_| ParseCommandError::InvalidIntegerArgument {
+                            argument: "id".to_string(),
+                            value: possible_id.to_string(),
+                        })?;
+
+                Ok(Command::MarkRead { id })
+            }
             _ => Err(ParseCommandError::UnknownCommand(command.to_string())),
         }
     }
 }
 
 pub enum Response {
-    AckUser { id: i64 },
+    AckUser {
+        id: i64,
+    },
     StartFeedList,
-    Feed { id: i64, name: String, url: String },
+    Feed {
+        id: i64,
+        name: String,
+        url: String,
+    },
+    StartEntryList,
+    Entry {
+        id: i64,
+        feed_id: i64,
+        feed_url: String,
+        title: String,
+        url: String,
+    },
     EndList,
-    AckAdd { id: i64 },
+    AckAdd {
+        id: i64,
+    },
     AckRemove,
+    AckMarkRead,
 
     ResourceNotFound(String),
     BadCommand(String),
+    NeedUser(String),
 
     InternalError(String),
 }
@@ -158,13 +196,23 @@ impl fmt::Display for Response {
         match self {
             Response::AckUser { id } => write!(f, "20 {}", id),
             Response::StartFeedList => write!(f, "21"),
-            Response::Feed { id, name, url } => write!(f, "22 {} {} {}", id, name, url),
-            Response::EndList => write!(f, "23"),
-            Response::AckAdd { id } => write!(f, "24 {}", id),
-            Response::AckRemove => write!(f, "25"),
+            Response::Feed { id, name, url } => write!(f, "22 {} {} :{}", id, url, name),
+            Response::StartEntryList => write!(f, "23"),
+            Response::Entry {
+                id,
+                feed_id,
+                feed_url,
+                title,
+                url,
+            } => write!(f, "24 {} {} {} {} :{}", id, feed_id, feed_url, url, title),
+            Response::EndList => write!(f, "25"),
+            Response::AckAdd { id } => write!(f, "26 {}", id),
+            Response::AckRemove => write!(f, "27"),
+            Response::AckMarkRead => write!(f, "28"),
 
             Response::ResourceNotFound(message) => write!(f, "40 {}", message),
             Response::BadCommand(message) => write!(f, "41 {}", message),
+            Response::NeedUser(message) => write!(f, "42 {}", message),
 
             Response::InternalError(message) => write!(f, "51 {}", message),
         }
