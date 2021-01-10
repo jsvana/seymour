@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use anyhow::{format_err, Context, Result};
 use env_logger::Builder;
+use futures::future::join_all;
 use log::LevelFilter;
 use log::{error, info};
 use sqlx::sqlite::SqlitePool;
@@ -22,7 +23,7 @@ use protocol::{Command, Response};
 
 enum ConnectedUser {
     NoUser,
-    User(String),
+    User { username: String, id: i64 },
 }
 
 struct Connection<'a> {
@@ -58,7 +59,7 @@ impl<'a> Connection<'a> {
             }
         };
 
-        self.user = ConnectedUser::User(username);
+        self.user = ConnectedUser::User { username, id };
 
         Ok(vec![Response::AckUser { id }])
     }
@@ -112,6 +113,46 @@ impl<'a> Connection<'a> {
         }
     }
 
+    async fn list_unread(&self) -> Result<Vec<Response>> {
+        let user_id = match self.user {
+            ConnectedUser::NoUser => {
+                return Ok(vec![Response::NeedUser("must select a user".to_string())]);
+            }
+            ConnectedUser::User { id, .. } => id,
+        };
+
+        let entries = sqlx::query!(
+            r#"
+            SELECT
+                feed_entries.id, feed_entries.feed_id, feeds.url AS feed_url, feed_entries.url, feed_entries.title
+            FROM feed_entries
+            LEFT JOIN feeds ON feed_entries.feed_id = feeds.id
+                WHERE feed_entries.id NOT IN (
+                    SELECT feed_entry_id FROM views WHERE user_id = ?1
+                )
+            "#, user_id).fetch_all(self.pool).await?;
+
+        let mut responses = vec![Response::StartEntryList];
+
+        for entry in entries {
+            responses.push(Response::Entry {
+                id: entry.id.ok_or_else(|| format_err!("entry has no ID"))?,
+                feed_id: entry.feed_id,
+                feed_url: entry.feed_url,
+                url: entry.url,
+                title: entry.title,
+            });
+        }
+
+        responses.push(Response::EndList);
+
+        Ok(responses)
+    }
+
+    async fn mark_read(&self, id: i64) -> Result<Vec<Response>> {
+        todo!();
+    }
+
     async fn consume_command(&mut self, command: Command) -> Result<Vec<Response>> {
         info!("< {}", command);
 
@@ -121,6 +162,8 @@ impl<'a> Connection<'a> {
             // TODO: make name optional and fill in from page fetch
             Command::AddFeed { name, url } => self.add_feed(name, url).await,
             Command::RemoveFeed { id } => self.remove_feed(id).await,
+            Command::ListUnread => self.list_unread().await,
+            Command::MarkRead { id } => self.mark_read(id).await,
         }
     }
 }
@@ -177,14 +220,24 @@ struct Config {
 }
 
 async fn check_feed(pool: &Pool<Sqlite>, feed_id: i64, feed_url: String) -> Result<()> {
-    let contents = Page::fetch_and_handle_redirects(feed_url).await?;
-    let feed: Feed = contents.try_into()?;
+    let contents = Page::fetch_and_handle_redirects(feed_url.clone())
+        .await
+        .with_context(|| format!("failed to fetch page \"{}\"", &feed_url))?;
+    let feed: Feed = contents
+        .try_into()
+        .with_context(|| format!("failed to parse \"{}\" as a gemfeed", &feed_url))?;
 
     if feed.entries.is_empty() {
         return Ok(());
     }
 
-    let mut tx = pool.begin().await?;
+    let mut tx = pool.begin().await.with_context(|| {
+        format!(
+            "failed to initiate transaction to insert feed entries for \"{}\"",
+            &feed_url
+        )
+    })?;
+
     for entry in feed.entries {
         let published_at = entry.published_at.to_string();
         sqlx::query!(
@@ -197,9 +250,16 @@ async fn check_feed(pool: &Pool<Sqlite>, feed_id: i64, feed_url: String) -> Resu
             entry.url,
         )
         .execute(&mut tx)
-        .await?;
+        .await
+        .with_context(|| format!("failed to insert entry for \"{}\" into database", &feed_url))?;
     }
-    tx.commit().await?;
+
+    tx.commit().await.with_context(|| {
+        format!(
+            "failed to commit transaction while inserting feed entries for \"{}\"",
+            &feed_url
+        )
+    })?;
 
     Ok(())
 }
@@ -209,15 +269,18 @@ async fn check_feeds(pool: &Pool<Sqlite>) -> Result<()> {
         .fetch_all(pool)
         .await?;
 
+    let mut futures = Vec::new();
     for feed in feeds {
-        if let Err(e) = check_feed(
+        futures.push(check_feed(
             pool,
             feed.id.ok_or_else(|| format_err!("feed missing ID"))?,
             feed.url.clone(),
-        )
-        .await
-        {
-            error!("failed to check feed \"{}\": {}", feed.url, e);
+        ));
+    }
+
+    for result in join_all(futures).await {
+        if let Err(e) = result {
+            error!("failed to check feed: {:?}", e);
         }
     }
 
