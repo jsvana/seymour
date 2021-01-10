@@ -419,6 +419,8 @@ dependencies = [
 [[package]]
 name = "gemini-feed"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49e413db4983d70dddb9ed02ebd0b06bab92146ae34b7807107d470cdacc3d0e"
 dependencies = [
  "anyhow",
  "chrono",
@@ -431,6 +433,8 @@ dependencies = [
 [[package]]
 name = "gemini-fetch"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c67ab89644582e73e47013c6f654b3147e694690dc1a4d92b28409c5d2b2fb5a"
 dependencies = [
  "anyhow",
  "itertools",
@@ -1059,6 +1063,8 @@ dependencies = [
 [[package]]
 name = "seymour-protocol"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e209dbf7a45daf157020ef040a18c98d72013f15ccb77086d4fd8d7bb29ac46"
 dependencies = [
  "thiserror",
 ]

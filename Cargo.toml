@@ -5,13 +5,13 @@ authors = ["Jay Vana <jaysvana@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-anyhow = "*"
-dotenv = "*"
-env_logger = "*"
-futures = "*"
-log = "*"
-sqlx = { version = "*", default-features = false, features = ["runtime-tokio-rustls", "macros", "migrate", "offline", "sqlite"] }
+anyhow = "1.0"
+dotenv = "0.15"
+env_logger = "0.8"
+futures = "0.3"
+log = "0.4"
+sqlx = { version = "0.4", default-features = false, features = ["runtime-tokio-rustls", "macros", "migrate", "offline", "sqlite"] }
 tokio = "0.2"
-seymour-protocol = { path = "/home/jsvana/projects/seymour-protocol", version = "*" }
-gemini-fetch = { path = "/home/jsvana/projects/gemini-fetch", version = "*" }
-gemini-feed = { path = "/home/jsvana/projects/gemini-feed", version = "*" }
+seymour-protocol = "0.1"
+gemini-fetch = "0.1"
+gemini-feed = "0.1"
