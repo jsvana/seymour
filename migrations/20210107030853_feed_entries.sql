@@ -5,6 +5,6 @@ CREATE TABLE IF NOT EXISTS feed_entries (
   published_at TEXT NOT NULL,
   url TEXT NOT NULL,
 
-  FOREIGN KEY(feed_id) REFERENCES feeds(id),
+  FOREIGN KEY(feed_id) REFERENCES feeds(id) ON DELETE CASCADE,
   UNIQUE(feed_id, published_at, url)
 );

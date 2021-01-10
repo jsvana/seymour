@@ -357,10 +357,35 @@ async fn check_feeds(pool: &Pool<Sqlite>) -> Result<()> {
         }
     }
 
+    let mut conn = pool.acquire().await?;
+    let mut rows = sqlx::query(
+        r#"
+        SELECT id
+        FROM feeds
+        WHERE id NOT IN (
+            SELECT feed_id FROM subscriptions GROUP BY feed_id
+        )
+        "#,
+    )
+    .fetch(&mut conn);
+
+    let mut tx = pool.begin().await?;
+
+    while let Some(row) = rows.try_next().await? {
+        let feed_id: i64 = row.try_get("id")?;
+
+        info!("Deleting fully unsubscribed feed {}", feed_id);
+
+        sqlx::query!("DELETE FROM feeds WHERE id = ?1", feed_id)
+            .execute(&mut tx)
+            .await;
+    }
+    tx.commit().await?;
+
     Ok(())
 }
 
-async fn manage_feeds(pool: &Pool<Sqlite>, config: &Config) -> Result<()> {
+async fn check_feeds_task(pool: &Pool<Sqlite>, config: &Config) -> Result<()> {
     let mut timer = interval(config.feed_fetch_interval);
     timer.tick().await;
 
@@ -400,13 +425,11 @@ async fn main() -> Result<()> {
     {
         let pool = pool.clone();
         tokio::spawn(async move {
-            manage_feeds(&pool, &config)
+            check_feeds_task(&pool, &config)
                 .await
                 .expect("feed manager failed");
         });
     }
-
-    // TODO(jsvana): feed cleanup task that GCs unsubscribed feeds
 
     loop {
         let (stream, address) = listener.accept().await?;
