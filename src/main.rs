@@ -8,9 +8,11 @@ use std::time::Duration;
 use anyhow::{format_err, Context, Result};
 use env_logger::Builder;
 use futures::future::join_all;
+use futures::TryStreamExt;
 use log::LevelFilter;
 use log::{error, info};
 use sqlx::sqlite::SqlitePool;
+use sqlx::Row;
 use sqlx::{Done, Pool, Sqlite};
 use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -121,26 +123,29 @@ impl<'a> Connection<'a> {
             ConnectedUser::User { id, .. } => id,
         };
 
-        let entries = sqlx::query!(
+        let mut conn = self.pool.acquire().await?;
+        // I would love to use sqlx::query!() here but it hard hangs rustc
+        // for some reason.
+        let mut rows = sqlx::query(
             r#"
             SELECT
                 feed_entries.id, feed_entries.feed_id, feeds.url AS feed_url, feed_entries.url, feed_entries.title
             FROM feed_entries
             LEFT JOIN feeds ON feed_entries.feed_id = feeds.id
                 WHERE feed_entries.id NOT IN (
-                    SELECT feed_entry_id FROM views WHERE user_id = ?1
+                    SELECT feed_entry_id FROM views WHERE user_id = ?
                 )
-            "#, user_id).fetch_all(self.pool).await?;
+            "#).bind(user_id).fetch(&mut conn);
 
         let mut responses = vec![Response::StartEntryList];
 
-        for entry in entries {
+        while let Some(row) = rows.try_next().await? {
             responses.push(Response::Entry {
-                id: entry.id.ok_or_else(|| format_err!("entry has no ID"))?,
-                feed_id: entry.feed_id,
-                feed_url: entry.feed_url,
-                url: entry.url,
-                title: entry.title,
+                id: row.try_get("id")?,
+                feed_id: row.try_get("feed_id")?,
+                feed_url: row.try_get("feed_url")?,
+                url: row.try_get("url")?,
+                title: row.try_get("title")?,
             });
         }
 
@@ -149,8 +154,26 @@ impl<'a> Connection<'a> {
         Ok(responses)
     }
 
-    async fn mark_read(&self, id: i64) -> Result<Vec<Response>> {
-        todo!();
+    async fn mark_read(&self, feed_entry_id: i64) -> Result<Vec<Response>> {
+        let user_id = match self.user {
+            ConnectedUser::NoUser => {
+                return Ok(vec![Response::NeedUser("must select a user".to_string())]);
+            }
+            ConnectedUser::User { id, .. } => id,
+        };
+
+        let mut conn = self.pool.acquire().await?;
+
+        let id = sqlx::query!(
+            "INSERT INTO views (user_id, feed_entry_id) VALUES (?1, ?2)",
+            user_id,
+            feed_entry_id
+        )
+        .execute(&mut conn)
+        .await?
+        .last_insert_rowid();
+
+        Ok(vec![Response::AckMarkRead])
     }
 
     async fn consume_command(&mut self, command: Command) -> Result<Vec<Response>> {
