@@ -417,6 +417,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "gemini-feed"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "gemini-fetch",
+ "lazy_static",
+ "regex",
+ "thiserror",
+]
+
+[[package]]
+name = "gemini-fetch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "itertools",
+ "ring",
+ "rustls",
+ "thiserror",
+ "tokio",
+ "tokio-rustls",
+ "url",
+ "webpki",
+ "webpki-roots",
+ "x509-signature",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1016,24 +1045,22 @@ name = "seymour"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "dotenv",
  "env_logger",
  "futures",
- "itertools",
- "lazy_static",
+ "gemini-feed",
+ "gemini-fetch",
  "log",
- "regex",
- "ring",
- "rustls",
+ "seymour-protocol",
  "sqlx",
- "thiserror",
  "tokio",
- "tokio-rustls",
- "url",
- "webpki",
- "webpki-roots",
- "x509-signature",
+]
+
+[[package]]
+name = "seymour-protocol"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
 ]
 
 [[package]]

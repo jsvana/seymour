@@ -6,21 +6,12 @@ edition = "2018"
 
 [dependencies]
 anyhow = "*"
-chrono = "*"
 dotenv = "*"
 env_logger = "*"
 futures = "*"
-itertools = "*"
-lazy_static = "*"
 log = "*"
-regex = "*"
-ring = "0.16"
-rustls = {version = "0.18", features = ["dangerous_configuration"]}
 sqlx = { version = "*", default-features = false, features = ["runtime-tokio-rustls", "macros", "migrate", "offline", "sqlite"] }
-thiserror = "*"
 tokio = "0.2"
-tokio-rustls="0.14"
-url = "*"
-webpki = "0.21"
-webpki-roots = "0.21"
-x509-signature = "0.5"
+seymour-protocol = { path = "/home/jsvana/projects/seymour-protocol", version = "*" }
+gemini-fetch = { path = "/home/jsvana/projects/gemini-fetch", version = "*" }
+gemini-feed = { path = "/home/jsvana/projects/gemini-feed", version = "*" }

@@ -1,6 +1,3 @@
-mod gemini;
-mod protocol;
-
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -19,9 +16,9 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::interval;
 
-use gemini::feed::Feed;
-use gemini::fetch::Page;
-use protocol::{Command, Response};
+use gemini_feed::Feed;
+use gemini_fetch::Page;
+use seymour_protocol::{Command, Response};
 
 enum ConnectedUser {
     NoUser,
