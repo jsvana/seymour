@@ -23,9 +23,9 @@ use thiserror::Error;
 
 pub enum Command {
     User { username: String },
-    ListFeeds,
-    AddFeed { name: String, url: String },
-    RemoveFeed { id: i64 },
+    ListSubscriptions,
+    Subscribe { url: String },
+    Unsubscribe { id: i64 },
     ListUnread,
     MarkRead { id: i64 },
 }
@@ -34,9 +34,9 @@ impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Command::User { username } => write!(f, "USER {}", username),
-            Command::ListFeeds => write!(f, "LISTFEEDS"),
-            Command::AddFeed { name, url } => write!(f, "ADDFEED {} {}", name, url),
-            Command::RemoveFeed { id } => write!(f, "REMOVEFEED {}", id),
+            Command::ListSubscriptions => write!(f, "LISTSUBSCRIPTIONS"),
+            Command::Subscribe { url } => write!(f, "SUBSCRIBE {}", url),
+            Command::Unsubscribe { id } => write!(f, "UNSUBSCRIBE {}", id),
             Command::ListUnread => write!(f, "LISTUNREAD"),
             Command::MarkRead { id } => write!(f, "MARKREAD {}", id),
         }
@@ -89,27 +89,23 @@ impl FromStr for Command {
                     username: username.to_string(),
                 })
             }
-            "LISTFEEDS" => {
+            "LISTSUBSCRIPTIONS" => {
                 check_arguments(&parts, 0)?;
 
-                Ok(Command::ListFeeds)
+                Ok(Command::ListSubscriptions)
             }
-            "ADDFEED" => {
-                check_arguments(&parts, 2)?;
+            "SUBSCRIBE" => {
+                check_arguments(&parts, 1)?;
 
-                let name = parts
-                    .get(1)
-                    .ok_or_else(|| ParseCommandError::MissingArgument("name".to_string()))?;
                 let url = parts
-                    .get(2)
+                    .get(1)
                     .ok_or_else(|| ParseCommandError::MissingArgument("url".to_string()))?;
 
-                Ok(Command::AddFeed {
-                    name: name.to_string(),
+                Ok(Command::Subscribe {
                     url: url.to_string(),
                 })
             }
-            "REMOVEFEED" => {
+            "UNSUBSCRIBE" => {
                 check_arguments(&parts, 1)?;
 
                 let possible_id = parts
@@ -124,7 +120,7 @@ impl FromStr for Command {
                             value: possible_id.to_string(),
                         })?;
 
-                Ok(Command::RemoveFeed { id })
+                Ok(Command::Unsubscribe { id })
             }
             "LISTUNREAD" => {
                 check_arguments(&parts, 0)?;
@@ -157,10 +153,9 @@ pub enum Response {
     AckUser {
         id: i64,
     },
-    StartFeedList,
-    Feed {
+    StartSubscriptionList,
+    Subscription {
         id: i64,
-        name: String,
         url: String,
     },
     StartEntryList,
@@ -172,10 +167,8 @@ pub enum Response {
         url: String,
     },
     EndList,
-    AckAdd {
-        id: i64,
-    },
-    AckRemove,
+    AckSubscribe,
+    AckUnsubscribe,
     AckMarkRead,
 
     ResourceNotFound(String),
@@ -195,8 +188,8 @@ impl fmt::Display for Response {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Response::AckUser { id } => write!(f, "20 {}", id),
-            Response::StartFeedList => write!(f, "21"),
-            Response::Feed { id, name, url } => write!(f, "22 {} {} :{}", id, url, name),
+            Response::StartSubscriptionList => write!(f, "21"),
+            Response::Subscription { id, url } => write!(f, "22 {} {}", id, url),
             Response::StartEntryList => write!(f, "23"),
             Response::Entry {
                 id,
@@ -206,8 +199,8 @@ impl fmt::Display for Response {
                 url,
             } => write!(f, "24 {} {} {} {} :{}", id, feed_id, feed_url, url, title),
             Response::EndList => write!(f, "25"),
-            Response::AckAdd { id } => write!(f, "26 {}", id),
-            Response::AckRemove => write!(f, "27"),
+            Response::AckSubscribe => write!(f, "26"),
+            Response::AckUnsubscribe => write!(f, "27"),
             Response::AckMarkRead => write!(f, "28"),
 
             Response::ResourceNotFound(message) => write!(f, "40 {}", message),

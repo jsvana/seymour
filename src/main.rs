@@ -66,31 +66,69 @@ impl<'a> Connection<'a> {
         Ok(vec![Response::AckUser { id }])
     }
 
-    async fn add_feed(&self, name: String, url: String) -> Result<Vec<Response>> {
+    async fn subscribe(&self, url: String) -> Result<Vec<Response>> {
+        let user_id = match self.user {
+            ConnectedUser::NoUser => {
+                return Ok(vec![Response::NeedUser("must select a user".to_string())]);
+            }
+            ConnectedUser::User { id, .. } => id,
+        };
+
+        let feed_id = match sqlx::query!("SELECT id FROM feeds WHERE url = ?1", url)
+            .fetch_one(self.pool)
+            .await
+        {
+            Ok(feed) => feed
+                .id
+                .ok_or_else(|| format_err!("database entry for feed \"{}\" has no ID", url))?,
+            Err(_) => {
+                let mut conn = self.pool.acquire().await?;
+
+                sqlx::query!("INSERT INTO feeds (url) VALUES (?1)", url)
+                    .execute(&mut conn)
+                    .await?
+                    .last_insert_rowid()
+            }
+        };
+
         let mut conn = self.pool.acquire().await?;
+        sqlx::query!(
+            "INSERT OR IGNORE INTO subscriptions (user_id, feed_id) VALUES (?1, ?2)",
+            user_id,
+            feed_id
+        )
+        .execute(&mut conn)
+        .await?;
 
-        let id = sqlx::query!("INSERT INTO feeds (name, url) VALUES (?1, ?2)", name, url)
-            .execute(&mut conn)
-            .await?
-            .last_insert_rowid();
-
-        Ok(vec![Response::AckAdd { id }])
+        Ok(vec![Response::AckSubscribe])
     }
 
-    async fn list_feeds(&self) -> Result<Vec<Response>> {
-        let feeds = sqlx::query!("SELECT id, name, url FROM feeds")
-            .fetch_all(self.pool)
-            .await?;
+    async fn list_subscriptions(&self) -> Result<Vec<Response>> {
+        let user_id = match self.user {
+            ConnectedUser::NoUser => {
+                return Ok(vec![Response::NeedUser("must select a user".to_string())]);
+            }
+            ConnectedUser::User { id, .. } => id,
+        };
 
-        let mut responses = vec![Response::StartFeedList];
+        let subscriptions = sqlx::query!(
+            r#"
+            SELECT subscriptions.feed_id, feeds.url
+            FROM subscriptions
+            LEFT JOIN feeds ON subscriptions.feed_id = feeds.id
+            WHERE subscriptions.user_id = ?1
+            "#,
+            user_id
+        )
+        .fetch_all(self.pool)
+        .await?;
 
-        for feed in feeds {
-            responses.push(Response::Feed {
-                id: feed
-                    .id
-                    .ok_or_else(|| format_err!("feed with name \"{}\" has no ID", feed.name))?,
-                name: feed.name,
-                url: feed.url,
+        let mut responses = vec![Response::StartSubscriptionList];
+
+        for subscription in subscriptions {
+            responses.push(Response::Subscription {
+                id: subscription.feed_id,
+                url: subscription.url,
             });
         }
 
@@ -99,18 +137,29 @@ impl<'a> Connection<'a> {
         Ok(responses)
     }
 
-    async fn remove_feed(&self, id: i64) -> Result<Vec<Response>> {
-        let affected_rows = sqlx::query!("DELETE FROM feeds WHERE id = ?1", id)
-            .execute(self.pool)
-            .await?
-            .rows_affected();
+    async fn unsubscribe(&self, feed_id: i64) -> Result<Vec<Response>> {
+        let user_id = match self.user {
+            ConnectedUser::NoUser => {
+                return Ok(vec![Response::NeedUser("must select a user".to_string())]);
+            }
+            ConnectedUser::User { id, .. } => id,
+        };
+
+        let affected_rows = sqlx::query!(
+            "DELETE FROM subscriptions WHERE user_id = ?1 AND feed_id = ?2",
+            user_id,
+            feed_id
+        )
+        .execute(self.pool)
+        .await?
+        .rows_affected();
 
         if affected_rows > 0 {
-            Ok(vec![Response::AckRemove])
+            Ok(vec![Response::AckUnsubscribe])
         } else {
             Ok(vec![Response::ResourceNotFound(format!(
-                "no feed with ID {} exists",
-                id
+                "no subscription with feed ID {} exists",
+                feed_id
             ))])
         }
     }
@@ -135,7 +184,10 @@ impl<'a> Connection<'a> {
                 WHERE feed_entries.id NOT IN (
                     SELECT feed_entry_id FROM views WHERE user_id = ?
                 )
-            "#).bind(user_id).fetch(&mut conn);
+                AND feed_entries.feed_id IN (
+                    SELECT feed_id FROM subscriptions WHERE user_id = ?
+                )
+            "#).bind(user_id).bind(user_id).fetch(&mut conn);
 
         let mut responses = vec![Response::StartEntryList];
 
@@ -164,14 +216,13 @@ impl<'a> Connection<'a> {
 
         let mut conn = self.pool.acquire().await?;
 
-        let id = sqlx::query!(
+        sqlx::query!(
             "INSERT INTO views (user_id, feed_entry_id) VALUES (?1, ?2)",
             user_id,
             feed_entry_id
         )
         .execute(&mut conn)
-        .await?
-        .last_insert_rowid();
+        .await?;
 
         Ok(vec![Response::AckMarkRead])
     }
@@ -181,10 +232,9 @@ impl<'a> Connection<'a> {
 
         match command {
             Command::User { username } => self.select_user(username).await,
-            Command::ListFeeds => self.list_feeds().await,
-            // TODO: make name optional and fill in from page fetch
-            Command::AddFeed { name, url } => self.add_feed(name, url).await,
-            Command::RemoveFeed { id } => self.remove_feed(id).await,
+            Command::ListSubscriptions => self.list_subscriptions().await,
+            Command::Subscribe { url } => self.subscribe(url).await,
+            Command::Unsubscribe { id } => self.unsubscribe(id).await,
             Command::ListUnread => self.list_unread().await,
             Command::MarkRead { id } => self.mark_read(id).await,
         }
@@ -355,6 +405,8 @@ async fn main() -> Result<()> {
                 .expect("feed manager failed");
         });
     }
+
+    // TODO(jsvana): feed cleanup task that GCs unsubscribed feeds
 
     loop {
         let (stream, address) = listener.accept().await?;
