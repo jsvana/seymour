@@ -12,6 +12,6 @@ futures = "0.3"
 log = "0.4"
 sqlx = { version = "0.4", default-features = false, features = ["runtime-tokio-rustls", "macros", "migrate", "offline", "sqlite"] }
 tokio = "0.2"
-seymour-protocol = "0.1"
+seymour-protocol = "0.1.4"
 gemini-fetch = "0.1"
 gemini-feed = "0.1"

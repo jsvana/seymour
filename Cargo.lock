@@ -1062,9 +1062,9 @@ dependencies = [
 
 [[package]]
 name = "seymour-protocol"
-version = "0.1.0"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e209dbf7a45daf157020ef040a18c98d72013f15ccb77086d4fd8d7bb29ac46"
+checksum = "1f2b85f656435d9c08cd947ddcf9543ecffc0030a283af3c33cec7fcd4339093"
 dependencies = [
  "thiserror",
 ]
