@@ -6,13 +6,10 @@ use anyhow::{format_err, Context, Result};
 use env_logger::Builder;
 use futures::future::join_all;
 use futures::TryStreamExt;
-use log::LevelFilter;
-use log::{error, info};
+use log::{error, info, LevelFilter};
 use sqlx::sqlite::SqlitePool;
-use sqlx::Row;
-use sqlx::{Done, Pool, Sqlite};
-use tokio::io::AsyncWriteExt;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use sqlx::{Done, Pool, Row, Sqlite};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::interval;
 
